@@ -1,35 +1,33 @@
 ﻿"""WarungKu Inventaris: Flask entrypoint untuk Vercel & Lokal.
-Tanpa password, tanpa database eksternal, langsung buka dashboard!
+Tanpa password, tanpa database eksternal, aset template & CSS embedded (bulletproof).
 """
 import csv
 import io
 import os
 import sys
 import traceback
-from flask import Flask, Response, flash, redirect, render_template, request, send_from_directory, session, url_for
+from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
+from jinja2 import ChoiceLoader, DictLoader, FileSystemLoader
 
-# Pastikan folder api/ ada di sys.path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-# Tentukan direktori template dan static
 TPL_DIR = os.path.join(BASE_DIR, 'templates')
 STATIC_DIR = os.path.join(BASE_DIR, 'public')
 
-if not os.path.isdir(TPL_DIR):
-    parent_dir = os.path.dirname(BASE_DIR)
-    TPL_DIR = os.path.join(parent_dir, 'templates')
-    STATIC_DIR = os.path.join(parent_dir, 'public')
-
-app = Flask(
-    __name__,
-    template_folder=TPL_DIR,
-    static_folder=STATIC_DIR,
-    static_url_path=''
-)
-
+app = Flask(__name__)
 app.secret_key = 'warungku-secret-key-tanpa-env-2026'
+
+# Load embedded templates dan CSS agar tidak tergantung sistem file cloud
+try:
+    from embedded_assets import TEMPLATES, CSS
+    loaders = [DictLoader(TEMPLATES)]
+    if os.path.isdir(TPL_DIR):
+        loaders.insert(0, FileSystemLoader(TPL_DIR))
+    app.jinja_loader = ChoiceLoader(loaders)
+except Exception:
+    CSS = ""
 
 from database import init_db
 from services import InventarisService, InventoryError, SupplierService, LaporanService
@@ -67,10 +65,9 @@ app.jinja_env.filters['rupiah'] = lambda n: 'Rp' + f'{int(n or 0):,}'.replace(',
 
 @app.get('/style.css')
 def style_css():
-    try:
-        return send_from_directory(STATIC_DIR, 'style.css', mimetype='text/css')
-    except Exception:
-        return "", 200, {'Content-Type': 'text/css'}
+    if CSS:
+        return Response(CSS, mimetype='text/css')
+    return "", 200, {'Content-Type': 'text/css'}
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -209,6 +206,10 @@ def export_movements_csv():
                     headers={'Content-Disposition': 'attachment; filename=riwayat_mutasi_warungku.csv',
                              'Cache-Control': 'no-store'})
 
+
+# Kompatibilitas WSGI / Serverless
+application = app
+handler = app
 
 if __name__ == '__main__':
     app.run(debug=True)
