@@ -6,12 +6,14 @@ import io
 import os
 import secrets
 from functools import wraps
-from flask import Flask, Response, flash, redirect, render_template, request, session, url_for, abort
+from flask import Flask, Response, flash, redirect, render_template, request, send_from_directory, session, url_for, abort
 from werkzeug.security import check_password_hash
 from database import init_db
 from services import InventarisService, InventoryError, SupplierService, LaporanService
 
-app = Flask(__name__)
+# Di Vercel, file statis dilayani CDN dari folder public/, bukan static_folder Flask.
+app = Flask(__name__, static_folder=None)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IS_HOSTED = os.getenv('VERCEL') == '1' or os.getenv('WARUNGKU_PRODUCTION') == '1'
 SECRET = os.getenv('WARUNGKU_SECRET_KEY')
 PASSWORD_HASH = os.getenv('WARUNGKU_ADMIN_PASSWORD_HASH')
@@ -81,6 +83,12 @@ def check_csrf():
 
 app.jinja_env.globals['csrf_token'] = csrf_token
 app.jinja_env.filters['rupiah'] = lambda n: 'Rp' + f'{int(n or 0):,}'.replace(',', '.')
+
+
+@app.get('/style.css')
+def style_css():
+    """Dipakai saat jalan lokal. Di Vercel, public/style.css dilayani CDN lebih dulu."""
+    return send_from_directory(os.path.join(BASE_DIR, 'public'), 'style.css', mimetype='text/css')
 
 
 @app.route('/login', methods=['GET', 'POST'])
