@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block title %}Supplier{% endblock %}
+{% block heading %}Data Supplier{% endblock %}
+{% block intro %}Simpan dan perbarui data pemasok barang dagangan.{% endblock %}
+{% block content %}
+<section class="panel form-panel">
+<h2>Tambah Supplier</h2>
+<form method="post" class="form-grid">
+<input type="hidden" name="_csrf" value="{{csrf_token()}}">
+<label>Nama Supplier *<input name="name" required maxlength="120" placeholder="PT Sumber Makmur"></label>
+<label>Nomor Telepon<input name="phone" maxlength="40" placeholder="08xxxxxxxxxx"></label>
+<label class="wide">Alamat Supplier<textarea name="address" rows="2" maxlength="250"></textarea></label>
+<div class="form-actions"><button class="btn btn-primary">+ Tambah Supplier</button></div>
+</form></section>
+<section class="panel"><h2>Daftar Supplier</h2><div class="table-scroll"><table><thead><tr><th>Nama</th><th>Telepon</th><th>Alamat</th><th>Aksi</th></tr></thead><tbody>
+{% for s in rows %}<tr><td><strong>{{s.name}}</strong></td><td>{{s.phone or '—'}}</td><td>{{s.address or '—'}}</td>
+<td><details><summary>Edit supplier</summary><form method="post" action="{{url_for('supplier_edit',supplier_id=s.id)}}" class="form-grid">
+<input type="hidden" name="_csrf" value="{{csrf_token()}}">
+<label>Nama<input name="name" value="{{s.name}}" required maxlength="120"></label>
+<label>Telepon<input name="phone" value="{{s.phone}}" maxlength="40"></label>
+<label>Alamat<textarea name="address" maxlength="250">{{s.address}}</textarea></label>
+<button class="btn btn-primary" type="submit">Simpan</button></form></details>
+<form method="post" action="{{url_for('supplier_archive',supplier_id=s.id)}}" onsubmit="return confirm('Arsipkan supplier?')">
+<input type="hidden" name="_csrf" value="{{csrf_token()}}"><button class="link-danger">Arsip</button></form></td></tr>
+{% else %}<tr><td colspan="4" class="empty">Belum ada supplier.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}
