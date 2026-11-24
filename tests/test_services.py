@@ -1,16 +1,9 @@
-import os
-import unittest
-
-# Wajib database tes terpisah. Jangan gunakan DATABASE_URL produksi.
-TEST_URL = os.environ.get('WARUNGKU_TEST_DATABASE_URL')
-if TEST_URL:
-    os.environ['DATABASE_URL'] = TEST_URL
+﻿import unittest
 from database import init_db
 from services import (InventarisService, InventoryError, LaporanService,
                       SupplierService, ProdukMakanan, ProdukNonMakanan)
 
 
-@unittest.skipUnless(TEST_URL, "Atur WARUNGKU_TEST_DATABASE_URL ke PostgreSQL khusus tes")
 class InventoryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -21,9 +14,9 @@ class InventoryTests(unittest.TestCase):
         self.sup = SupplierService()
         self.reports = LaporanService()
         import uuid
-        self.sku = 'T' + uuid.uuid4().hex[:9].upper()
-        self.inv.save_product({'sku':self.sku, 'name':'Barang Test', 'cost':'2500',
-                               'price':'3500', 'min_stock':'3', 'category':'Makanan'})
+        self.sku = 'T' + uuid.uuid4().hex[:7].upper()
+        self.inv.save_product({'sku': self.sku, 'name': 'Barang Test', 'cost': '2500',
+                               'price': '3500', 'min_stock': '3', 'category': 'Makanan'})
         self.p = next(x for x in self.inv.products() if x['sku'] == self.sku)
 
     def test_masuk_keluar_dan_nilai(self):
@@ -55,8 +48,8 @@ class InventoryTests(unittest.TestCase):
             self.inv.move_stock(self.p['id'], 'IN', 1, 'Tes')
 
     def test_inheritance_polymorphism(self):
-        items = [ProdukMakanan('A','Roti',100,150,1,'2026-12-31'),
-                 ProdukNonMakanan('B','Sabun',100,150,2)]
+        items = [ProdukMakanan('A', 'Roti', 100, 150, 1, '2026-12-31'),
+                 ProdukNonMakanan('B', 'Sabun', 100, 150, 2)]
         self.assertIn('Kedaluwarsa', items[0].keterangan())
         self.assertIn('Non-makanan', items[1].keterangan())
         self.assertEqual(items[1].nilai_persediaan(), 200)

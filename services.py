@@ -1,8 +1,8 @@
-"""Logika bisnis WarungKu. Tidak bergantung pada Flask supaya mudah diuji."""
+﻿"""Logika bisnis WarungKu. Menggunakan SQLite standar tanpa ketergantungan eksternal."""
+import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
 from database import db_session
-from psycopg.errors import UniqueViolation, CheckViolation, ForeignKeyViolation
 
 
 class InventoryError(ValueError):
@@ -50,7 +50,7 @@ class ProdukNonMakanan(Produk):
 class SupplierService:
     def list(self):
         with db_session() as db:
-            return db.execute('SELECT * FROM suppliers WHERE active=TRUE ORDER BY name').fetchall()
+            return db.execute('SELECT * FROM suppliers WHERE active=1 ORDER BY name').fetchall()
 
     def save(self, name, phone='', address='', supplier_id=None):
         name = str(name).strip()
@@ -61,18 +61,19 @@ class SupplierService:
         with db_session() as db:
             try:
                 if supplier_id is None:
-                    db.execute('INSERT INTO suppliers(name,phone,address) VALUES(%s,%s,%s)', (name, phone.strip(), address.strip()))
+                    db.execute('INSERT INTO suppliers(name,phone,address) VALUES(?,?,?)',
+                               (name, phone.strip(), address.strip()))
                 else:
-                    cur = db.execute('UPDATE suppliers SET name=%s,phone=%s,address=%s WHERE id=%s AND active=TRUE',
-                               (name, phone.strip(), address.strip(), supplier_id))
+                    cur = db.execute('UPDATE suppliers SET name=?,phone=?,address=? WHERE id=? AND active=1',
+                                     (name, phone.strip(), address.strip(), supplier_id))
                     if cur.rowcount == 0:
                         raise InventoryError('Supplier tidak ditemukan.')
-            except (UniqueViolation, CheckViolation, ForeignKeyViolation):
+            except sqlite3.IntegrityError:
                 raise InventoryError('Nama supplier sudah digunakan.')
 
     def archive(self, supplier_id):
         with db_session() as db:
-            db.execute('UPDATE suppliers SET active=FALSE WHERE id=%s', (supplier_id,))
+            db.execute('UPDATE suppliers SET active=0 WHERE id=?', (supplier_id,))
 
 
 class InventarisService:
@@ -81,12 +82,12 @@ class InventarisService:
                  LEFT JOIN suppliers s ON s.id=p.supplier_id WHERE 1=1'''
         params = []
         if not include_inactive:
-            sql += ' AND p.active=TRUE'
+            sql += ' AND p.active=1'
         if search:
-            sql += ' AND (p.name ILIKE %s OR p.sku ILIKE %s)'
+            sql += ' AND (p.name LIKE ? OR p.sku LIKE ?)'
             params.extend([f'%{search}%', f'%{search}%'])
         if category:
-            sql += ' AND p.category=%s'
+            sql += ' AND p.category=?'
             params.append(category)
         sql += ' ORDER BY p.name'
         with db_session() as db:
@@ -94,7 +95,7 @@ class InventarisService:
 
     def get_product(self, product_id, active_only=True):
         with db_session() as db:
-            query = 'SELECT * FROM products WHERE id=%s' + (' AND active=TRUE' if active_only else '')
+            query = 'SELECT * FROM products WHERE id=?' + (' AND active=1' if active_only else '')
             row = db.execute(query, (product_id,)).fetchone()
             if row is None:
                 raise InventoryError('Produk tidak ditemukan.')
@@ -123,24 +124,24 @@ class InventarisService:
         if supplier_id:
             supplier_id = positive_int(supplier_id, 'ID supplier')
         with db_session() as db:
-            if supplier_id and not db.execute('SELECT 1 FROM suppliers WHERE id=%s AND active=TRUE', (supplier_id,)).fetchone():
+            if supplier_id and not db.execute('SELECT 1 FROM suppliers WHERE id=? AND active=1', (supplier_id,)).fetchone():
                 raise InventoryError('Supplier tidak ditemukan.')
             try:
                 if product_id is None:
                     db.execute('''INSERT INTO products(sku,name,category,cost,price,min_stock,expiry_date,supplier_id)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s)''', (sku,name,category,cost,price,min_stock,expiry,supplier_id))
+                        VALUES(?,?,?,?,?,?,?,?)''', (sku, name, category, cost, price, min_stock, expiry, supplier_id))
                 else:
-                    cur = db.execute('''UPDATE products SET sku=%s,name=%s,category=%s,cost=%s,price=%s,min_stock=%s,
-                        expiry_date=%s,supplier_id=%s WHERE id=%s AND active=TRUE''',
-                        (sku,name,category,cost,price,min_stock,expiry,supplier_id,product_id))
+                    cur = db.execute('''UPDATE products SET sku=?,name=?,category=?,cost=?,price=?,min_stock=?,
+                        expiry_date=?,supplier_id=? WHERE id=? AND active=1''',
+                        (sku, name, category, cost, price, min_stock, expiry, supplier_id, product_id))
                     if cur.rowcount == 0:
                         raise InventoryError('Produk tidak ditemukan.')
-            except (UniqueViolation, CheckViolation, ForeignKeyViolation):
+            except sqlite3.IntegrityError:
                 raise InventoryError('Kode produk sudah digunakan atau data tidak valid.')
 
     def archive_product(self, product_id):
         with db_session() as db:
-            cur = db.execute('UPDATE products SET active=FALSE WHERE id=%s AND active=TRUE', (product_id,))
+            cur = db.execute('UPDATE products SET active=0 WHERE id=? AND active=1', (product_id,))
             if cur.rowcount == 0:
                 raise InventoryError('Produk tidak ditemukan.')
 
@@ -155,7 +156,7 @@ class InventarisService:
         if len(reason) > 500:
             raise InventoryError('Alasan mutasi terlalu panjang.')
         with db_session() as db:
-            product = db.execute('SELECT stock FROM products WHERE id=%s AND active=TRUE FOR UPDATE', (product_id,)).fetchone()
+            product = db.execute('SELECT stock FROM products WHERE id=? AND active=1', (product_id,)).fetchone()
             if product is None:
                 raise InventoryError('Produk tidak ditemukan.')
             current = product['stock']
@@ -165,15 +166,15 @@ class InventarisService:
             change = next_stock - current
             if change == 0:
                 raise InventoryError('Stok tidak berubah.')
-            db.execute('UPDATE products SET stock=%s WHERE id=%s', (next_stock, product_id))
+            db.execute('UPDATE products SET stock=? WHERE id=?', (next_stock, product_id))
             db.execute('''INSERT INTO movements(product_id,type,qty_change,stock_after,reason)
-                VALUES(%s,%s,%s,%s,%s)''', (product_id, kind, change, next_stock, reason))
+                VALUES(?,?,?,?,?)''', (product_id, kind, change, next_stock, reason))
             return next_stock
 
     def movements(self, limit=200):
         with db_session() as db:
             return db.execute('''SELECT m.*,p.name,p.sku FROM movements m
-                  JOIN products p ON m.product_id=p.id ORDER BY m.id DESC LIMIT %s''', (limit,)).fetchall()
+                  JOIN products p ON m.product_id=p.id ORDER BY m.id DESC LIMIT ?''', (limit,)).fetchall()
 
 
 class LaporanService:
@@ -182,12 +183,12 @@ class LaporanService:
             sums = db.execute('''SELECT COUNT(*) AS product_count, COALESCE(SUM(stock),0) AS units,
                   COALESCE(SUM(stock*cost),0) AS inventory_value,
                   COALESCE(SUM(CASE WHEN stock<=min_stock THEN 1 ELSE 0 END),0) AS low_count
-                  FROM products WHERE active=TRUE''').fetchone()
-            low = db.execute('''SELECT * FROM products WHERE active=TRUE AND stock<=min_stock
+                  FROM products WHERE active=1''').fetchone()
+            low = db.execute('''SELECT * FROM products WHERE active=1 AND stock<=min_stock
                   ORDER BY stock ASC,name LIMIT 12''').fetchall()
             upcoming = (date.today() + timedelta(days=30)).isoformat()
-            expiring = db.execute('''SELECT * FROM products WHERE active=TRUE AND expiry_date IS NOT NULL
-                  AND expiry_date<=%s ORDER BY expiry_date LIMIT 12''', (upcoming,)).fetchall()
+            expiring = db.execute('''SELECT * FROM products WHERE active=1 AND expiry_date IS NOT NULL
+                  AND expiry_date != '' AND expiry_date<=? ORDER BY expiry_date LIMIT 12''', (upcoming,)).fetchall()
             recent = db.execute('''SELECT m.*,p.name FROM movements m JOIN products p ON p.id=m.product_id
                    ORDER BY m.id DESC LIMIT 8''').fetchall()
             return {'summary': sums, 'low': low, 'expiring': expiring, 'recent': recent}
