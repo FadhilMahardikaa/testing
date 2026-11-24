@@ -1,21 +1,31 @@
-﻿"""WarungKu: Flask routes. Siap jalan di Vercel tanpa password & tanpa database."""
+﻿"""WarungKu Inventaris: Flask entrypoint untuk Vercel & Lokal.
+Tanpa password, tanpa database eksternal, langsung buka dashboard!
+"""
 import csv
 import io
 import os
+import sys
 import traceback
 from flask import Flask, Response, flash, redirect, render_template, request, send_from_directory, session, url_for
 
-# Tentukan direktori dasar secara dinamis (bekerja dari root atau folder api/)
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if os.path.exists(os.path.join(current_dir, 'templates')):
-    BASE_DIR = current_dir
-else:
-    BASE_DIR = os.path.abspath(os.path.join(current_dir, '..'))
+# Pastikan folder api/ ada di sys.path
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
+# Tentukan direktori template dan static
+TPL_DIR = os.path.join(BASE_DIR, 'templates')
+STATIC_DIR = os.path.join(BASE_DIR, 'public')
+
+if not os.path.isdir(TPL_DIR):
+    parent_dir = os.path.dirname(BASE_DIR)
+    TPL_DIR = os.path.join(parent_dir, 'templates')
+    STATIC_DIR = os.path.join(parent_dir, 'public')
 
 app = Flask(
     __name__,
-    template_folder=os.path.join(BASE_DIR, 'templates'),
-    static_folder=os.path.join(BASE_DIR, 'public'),
+    template_folder=TPL_DIR,
+    static_folder=STATIC_DIR,
     static_url_path=''
 )
 
@@ -48,7 +58,7 @@ def handle_any_error(e):
 @app.before_request
 def ensure_initialized():
     init_db()
-    session['logged_in'] = True  # Otomatis login, tanpa form password
+    session['logged_in'] = True  # Langsung login otomatis tanpa password!
 
 
 app.jinja_env.globals['csrf_token'] = lambda: 'public_token'
@@ -57,12 +67,14 @@ app.jinja_env.filters['rupiah'] = lambda n: 'Rp' + f'{int(n or 0):,}'.replace(',
 
 @app.get('/style.css')
 def style_css():
-    return send_from_directory(os.path.join(BASE_DIR, 'public'), 'style.css', mimetype='text/css')
+    try:
+        return send_from_directory(STATIC_DIR, 'style.css', mimetype='text/css')
+    except Exception:
+        return "", 200, {'Content-Type': 'text/css'}
 
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    # Langsung arahkan ke dashboard tanpa password
     return redirect(url_for('dashboard'))
 
 
