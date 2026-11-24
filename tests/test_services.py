@@ -1,14 +1,9 @@
 ﻿import unittest
-from database import init_db
 from services import (InventarisService, InventoryError, LaporanService,
                       SupplierService, ProdukMakanan, ProdukNonMakanan)
 
 
 class InventoryTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        init_db()
-
     def setUp(self):
         self.inv = InventarisService()
         self.sup = SupplierService()

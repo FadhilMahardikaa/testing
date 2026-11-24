@@ -1,113 +1,47 @@
-﻿"""Koneksi SQLite (tanpa perlu database eksternal / PostgreSQL).
-Bekerja secara lokal dan di Vercel (/tmp/warungku.db).
-Data otomatis terisi contoh produk & supplier jika kosong.
+﻿"""Penyimpanan data In-Memory murni untuk WarungKu.
+Tidak membutuhkan database server, tidak membutuhkan file disk, 100% aman untuk serverless.
 """
-import os
-import sqlite3
-from contextlib import contextmanager
+from datetime import datetime
 
-# Di serverless Vercel, direktori /tmp adalah lokasi yang memiliki izin tulis.
-if os.path.isdir('/tmp'):
-    DB_FILE = '/tmp/warungku.db'
-else:
-    DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'warungku.db')
-
-
-def dict_factory(cursor, row):
-    return {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
-
-
-def connect():
-    try:
-        conn = sqlite3.connect(DB_FILE, timeout=15)
-        conn.row_factory = dict_factory
-        conn.execute("PRAGMA foreign_keys = ON;")
-        return conn
-    except Exception:
-        conn = sqlite3.connect(':memory:', timeout=15)
-        conn.row_factory = dict_factory
-        conn.execute("PRAGMA foreign_keys = ON;")
-        return conn
-
-
-@contextmanager
-def db_session():
-    conn = connect()
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+# State global in-memory
+DATA = {
+    'suppliers': [],
+    'products': [],
+    'movements': [],
+    'next_supplier_id': 1,
+    'next_product_id': 1,
+    'next_movement_id': 1
+}
 
 
 def init_db():
-    """Idempotent: membuat skema tabel dan data awal jika masih kosong."""
-    try:
-        with db_session() as db:
-            db.execute('''CREATE TABLE IF NOT EXISTS suppliers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                phone TEXT NOT NULL DEFAULT '',
-                address TEXT NOT NULL DEFAULT '',
-                active INTEGER NOT NULL DEFAULT 1
-            )''')
-            db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_name_ci ON suppliers(name COLLATE NOCASE)')
+    """Mengisi data awal jika kosong."""
+    if not DATA['products']:
+        DATA['suppliers'] = [
+            {'id': 1, 'name': 'PT Sumber Makmur', 'phone': '081234567890', 'address': 'Jl. Merdeka No. 10, Jakarta', 'active': True},
+            {'id': 2, 'name': 'Wings Group Distributor', 'phone': '081398765432', 'address': 'Kawasan Industri Cikarang', 'active': True},
+            {'id': 3, 'name': 'CV Berkah Sembako', 'phone': '081122334455', 'address': 'Pasar Induk Kramat Jati', 'active': True},
+        ]
+        DATA['next_supplier_id'] = 4
 
-            db.execute('''CREATE TABLE IF NOT EXISTS products (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sku TEXT NOT NULL,
-                name TEXT NOT NULL,
-                category TEXT NOT NULL DEFAULT 'Lainnya',
-                cost INTEGER NOT NULL CHECK(cost >= 0),
-                price INTEGER NOT NULL CHECK(price >= 0),
-                stock INTEGER NOT NULL DEFAULT 0 CHECK(stock >= 0),
-                min_stock INTEGER NOT NULL DEFAULT 5 CHECK(min_stock >= 0),
-                expiry_date TEXT,
-                supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
-                active INTEGER NOT NULL DEFAULT 1,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )''')
-            db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku_ci ON products(sku COLLATE NOCASE)')
+        DATA['products'] = [
+            {'id': 1, 'sku': 'IND001', 'name': 'Indomie Goreng Original', 'category': 'Makanan', 'cost': 2800, 'price': 3500, 'stock': 48, 'min_stock': 10, 'expiry_date': '2027-06-30', 'supplier_id': 1, 'active': True, 'created_at': datetime.now()},
+            {'id': 2, 'sku': 'MNK001', 'name': 'Minyak Goreng Bimoli 1L', 'category': 'Sembako', 'cost': 15000, 'price': 18000, 'stock': 14, 'min_stock': 5, 'expiry_date': '2027-12-31', 'supplier_id': 3, 'active': True, 'created_at': datetime.now()},
+            {'id': 3, 'sku': 'BRS001', 'name': 'Beras Ramos Super 5kg', 'category': 'Sembako', 'cost': 64000, 'price': 72000, 'stock': 8, 'min_stock': 5, 'expiry_date': '', 'supplier_id': 3, 'active': True, 'created_at': datetime.now()},
+            {'id': 4, 'sku': 'SBN001', 'name': 'Sabun Mandi Lifebuoy Red', 'category': 'Kebersihan', 'cost': 3500, 'price': 4500, 'stock': 3, 'min_stock': 5, 'expiry_date': '2028-01-01', 'supplier_id': 2, 'active': True, 'created_at': datetime.now()},
+            {'id': 5, 'sku': 'SUS001', 'name': 'Susu UHT Ultramilk 250ml', 'category': 'Minuman', 'cost': 5000, 'price': 6500, 'stock': 20, 'min_stock': 5, 'expiry_date': '2026-12-05', 'supplier_id': 1, 'active': True, 'created_at': datetime.now()},
+        ]
+        DATA['next_product_id'] = 6
 
-            db.execute('''CREATE TABLE IF NOT EXISTS movements (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                product_id INTEGER NOT NULL REFERENCES products(id),
-                type TEXT NOT NULL CHECK(type IN ('IN','OUT','ADJUST')),
-                qty_change INTEGER NOT NULL CHECK(qty_change != 0),
-                stock_after INTEGER NOT NULL CHECK(stock_after >= 0),
-                reason TEXT NOT NULL,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )''')
-            db.execute('CREATE INDEX IF NOT EXISTS idx_movements_product ON movements(product_id)')
-            db.execute('CREATE INDEX IF NOT EXISTS idx_movements_created ON movements(created_at)')
+        DATA['movements'] = [
+            {'id': 1, 'product_id': 1, 'type': 'IN', 'qty_change': 48, 'stock_after': 48, 'reason': 'Stok awal gudang', 'created_at': datetime.now()},
+            {'id': 2, 'product_id': 2, 'type': 'IN', 'qty_change': 14, 'stock_after': 14, 'reason': 'Stok awal gudang', 'created_at': datetime.now()},
+            {'id': 3, 'product_id': 3, 'type': 'IN', 'qty_change': 8, 'stock_after': 8, 'reason': 'Stok awal gudang', 'created_at': datetime.now()},
+            {'id': 4, 'product_id': 4, 'type': 'IN', 'qty_change': 3, 'stock_after': 3, 'reason': 'Stok awal gudang (menipis)', 'created_at': datetime.now()},
+            {'id': 5, 'product_id': 5, 'type': 'IN', 'qty_change': 20, 'stock_after': 20, 'reason': 'Stok awal gudang', 'created_at': datetime.now()},
+        ]
+        DATA['next_movement_id'] = 6
 
-            # Seed data awal jika belum ada data
-            cur = db.execute('SELECT COUNT(*) AS count FROM products')
-            row = cur.fetchone()
-            if row and row['count'] == 0:
-                db.execute('''INSERT INTO suppliers (name, phone, address) VALUES
-                    ('PT Sumber Makmur', '081234567890', 'Jl. Merdeka No. 10, Jakarta'),
-                    ('Wings Group Distributor', '081398765432', 'Kawasan Industri Cikarang'),
-                    ('CV Berkah Sembako', '081122334455', 'Pasar Induk Kramat Jati')
-                ''')
-                
-                db.execute('''INSERT INTO products (sku, name, category, cost, price, stock, min_stock, expiry_date, supplier_id) VALUES
-                    ('IND001', 'Indomie Goreng Original', 'Makanan', 2800, 3500, 48, 10, '2027-06-30', 1),
-                    ('MNK001', 'Minyak Goreng Bimoli 1L', 'Sembako', 15000, 18000, 14, 5, '2027-12-31', 3),
-                    ('BRS001', 'Beras Ramos Super 5kg', 'Sembako', 64000, 72000, 8, 5, NULL, 3),
-                    ('SBN001', 'Sabun Mandi Lifebuoy Red', 'Kebersihan', 3500, 4500, 3, 5, '2028-01-01', 2),
-                    ('SUS001', 'Susu UHT Ultramilk 250ml', 'Minuman', 5000, 6500, 20, 5, '2026-12-05', 1)
-                ''')
 
-                db.execute('''INSERT INTO movements (product_id, type, qty_change, stock_after, reason) VALUES
-                    (1, 'IN', 48, 48, 'Stok awal gudang'),
-                    (2, 'IN', 14, 14, 'Stok awal gudang'),
-                    (3, 'IN', 8, 8, 'Stok awal gudang'),
-                    (4, 'IN', 3, 3, 'Stok awal gudang (menipis)'),
-                    (5, 'IN', 20, 20, 'Stok awal gudang')
-                ''')
-    except Exception as e:
-        print("Database initialization notice:", e)
+# Inisialisasi saat modul dimuat
+init_db()
