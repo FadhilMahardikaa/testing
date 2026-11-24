@@ -209,7 +209,6 @@ def export_movements_csv():
 
 # Kompatibilitas WSGI / Serverless
 application = app
-handler = app
 
 if __name__ == '__main__':
     app.run(debug=True)
